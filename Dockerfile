@@ -1,25 +1,26 @@
 FROM python:3.10-alpine
 
-# Install cron and tzdata
 RUN apk add --no-cache dcron tzdata supervisor
 
-# Set timezone
-ENV TZ=Asia/Kolkata
+ENV TZ=Asia/Istanbul
+ENV PYTHONUNBUFFERED=1
+ENV DATA_DIR=/app/data
+ENV RUN_MODE=loop
 
-# Create app directory
 WORKDIR /app
 
-# Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+COPY src ./src
 COPY visa_slot_checker.py .
+COPY scripts ./scripts
 COPY crontab /etc/crontabs/root
-
-# Configure supervisord
 COPY supervisord.conf /etc/supervisord.conf
 
+RUN mkdir -p /app/data /var/log
 
-# Run supervisord
+HEALTHCHECK --interval=120s --timeout=10s --start-period=90s --retries=3 \
+  CMD test -s /app/data/last_success.txt || exit 1
+
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
