@@ -272,7 +272,6 @@ VM yeniden başlasa bile `restart: unless-stopped` ile konteynerler ayağa kalka
 | `DEDUPE_HOURS` | `6` | Aynı slotu tekrar bildirme penceresi |
 | `NOTIFY` / `DRY_RUN` | `true` / `false` | Bildirim aç/kapa |
 | `TZ` | `Asia/Istanbul` | Saat dilimi |
-| `REQUIRE_BOTH_CONSULATE_AND_VAC` | `false` | Hindistan legacy AND kuralı |
 
 ---
 

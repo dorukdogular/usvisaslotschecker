@@ -26,11 +26,10 @@ class CheckerTests(unittest.TestCase):
         past = (datetime.now().date() - timedelta(days=2)).strftime("%d %b %Y")
         self.assertFalse(is_within_duration(past, 120))
 
-    def test_istanbul_match_without_vac_and(self):
+    def test_istanbul_match(self):
         config = Config(
             visa_locations=["ISTANBUL"],
             visa_categories=["B1/B2"],
-            require_both_consulate_and_vac=False,
             visa_duration_days=120,
         )
         slots = [
@@ -59,31 +58,21 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(matched[0]["visa_location"], "ISTANBUL")
         self.assertEqual(matched[0]["visa_type"], "B1/B2")
 
-    def test_legacy_and_mode(self):
+    def test_missing_category_still_matches_location(self):
         config = Config(
-            visa_locations=["NEW DELHI", "NEW DELHI VAC"],
-            visa_categories=[],
-            require_both_consulate_and_vac=True,
+            visa_locations=["ISTANBUL"],
+            visa_categories=["B1/B2"],
             visa_duration_days=120,
         )
         slots = [
             {
-                "visa_location": "NEW DELHI",
+                "visa_location": "ISTANBUL",
                 "slots": 1,
                 "start_date": _future(5),
-            },
-            {
-                "visa_location": "NEW DELHI VAC",
-                "slots": 2,
-                "start_date": _future(6),
-            },
+            }
         ]
         matched = filter_slots(slots, config)
-        self.assertEqual(len(matched), 2)
-
-        # Only consulate → no alert
-        matched2 = filter_slots(slots[:1], config)
-        self.assertEqual(matched2, [])
+        self.assertEqual(len(matched), 1)
 
 
 class DedupeTests(unittest.TestCase):

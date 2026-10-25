@@ -10,6 +10,21 @@ from ..config import Config
 
 logger = logging.getLogger(__name__)
 
+# Headers mimic the checkvisaslots Chrome extension (required by their API).
+CHECKVISASLOTS_HEADERS = {
+    "accept": "*/*",
+    "accept-language": "en-GB,en-US;q=0.9,en;q=0.8,tr;q=0.7",
+    "extversion": "4.6.1",
+    "origin": "chrome-extension://beepaenfejnphdgnkmccjcfiieihhogl",
+    "priority": "u=1, i",
+    "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "Windows",
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "cross-site",
+}
+
 
 def fetch_checkvisaslots(
     config: Config, client: CFSafeClient
@@ -17,7 +32,8 @@ def fetch_checkvisaslots(
     if not config.api_key:
         raise RuntimeError("API_KEY is required for checkvisaslots source")
 
-    headers = {"x-api-key": config.api_key}
+    headers = dict(CHECKVISASLOTS_HEADERS)
+    headers["x-api-key"] = config.api_key
     result = client.get(config.checkvisaslots_url, headers=headers)
 
     if result.status_code >= 400:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -13,20 +14,6 @@ from curl_cffi import requests as cffi_requests
 from .config import Config
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_HEADERS = {
-    "accept": "*/*",
-    "accept-language": "en-GB,en-US;q=0.9,en;q=0.8,tr;q=0.7",
-    "extversion": "4.6.1",
-    "origin": "chrome-extension://beepaenfejnphdgnkmccjcfiieihhogl",
-    "priority": "u=1, i",
-    "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": "Windows",
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "cross-site",
-}
 
 
 @dataclass
@@ -51,22 +38,21 @@ class CloudflareBlockedError(Exception):
 
 
 def _looks_like_cloudflare(status_code: int, text: str) -> bool:
-    if status_code in {403, 503, 429}:
-        lowered = (text or "").lower()
-        markers = (
-            "cloudflare",
-            "cf-ray",
-            "attention required",
-            "just a moment",
-            "enable javascript",
-            "checking your browser",
-            "challenge-platform",
-        )
-        if any(m in lowered for m in markers):
-            return True
-        if status_code in {403, 503} and "<html" in lowered:
-            return True
-    return False
+    if status_code not in {403, 503, 429}:
+        return False
+    lowered = (text or "").lower()
+    markers = (
+        "cloudflare",
+        "cf-ray",
+        "attention required",
+        "just a moment",
+        "enable javascript",
+        "checking your browser",
+        "challenge-platform",
+    )
+    if any(m in lowered for m in markers):
+        return True
+    return status_code in {403, 503} and "<html" in lowered
 
 
 class CFSafeClient:
@@ -83,14 +69,10 @@ class CFSafeClient:
         headers: Optional[Dict[str, str]] = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> HttpResult:
-        merged = dict(DEFAULT_HEADERS)
-        if headers:
-            merged.update(headers)
-
         try:
             response = self.session.get(
                 url,
-                headers=merged,
+                headers=headers or {},
                 params=params,
                 proxies=self.config.proxies,
                 timeout=self.config.request_timeout,
@@ -99,7 +81,7 @@ class CFSafeClient:
         except Exception as exc:
             logger.warning("Direct request failed: %s", exc)
             if self.config.cf_solver_url:
-                return self._via_flaresolverr(url, merged)
+                return self._via_flaresolverr(url)
             raise
 
         text = response.text or ""
@@ -109,7 +91,7 @@ class CFSafeClient:
                 response.status_code,
             )
             if self.config.cf_solver_url:
-                return self._via_flaresolverr(url, merged)
+                return self._via_flaresolverr(url)
             raise CloudflareBlockedError(response.status_code, text)
 
         json_data = None
@@ -126,45 +108,9 @@ class CFSafeClient:
             via_solver=False,
         )
 
-    def post(
-        self,
-        url: str,
-        *,
-        data: Optional[Dict[str, Any]] = None,
-        json_body: Optional[Dict[str, Any]] = None,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> HttpResult:
-        merged = {"accept": "*/*"}
-        if headers:
-            merged.update(headers)
-
-        response = self.session.post(
-            url,
-            data=data,
-            json=json_body,
-            headers=merged,
-            proxies=self.config.proxies,
-            timeout=self.config.request_timeout,
-            verify=True,
-        )
-        text = response.text or ""
-        json_data = None
-        try:
-            json_data = response.json()
-        except Exception:
-            json_data = None
-        return HttpResult(
-            status_code=response.status_code,
-            text=text,
-            json_data=json_data,
-            headers=dict(response.headers),
-        )
-
-    def _via_flaresolverr(
-        self, url: str, headers: Dict[str, str]
-    ) -> HttpResult:
+    def _via_flaresolverr(self, url: str) -> HttpResult:
         solver = self.config.cf_solver_url.rstrip("/")
-        payload = {
+        payload: Dict[str, Any] = {
             "cmd": "request.get",
             "url": url,
             "maxTimeout": 60000,
@@ -173,7 +119,7 @@ class CFSafeClient:
             payload["proxy"] = {"url": self.config.proxy_url}
 
         logger.info("Fetching via FlareSolverr at %s", solver)
-        # Solver itself is usually local — do not send through external proxy
+        # Solver is local — do not send the solver call through the outbound proxy
         response = self.session.post(
             f"{solver}/v1",
             json=payload,
@@ -224,8 +170,6 @@ class BackoffController:
             self._until = 0.0
 
     def _save(self) -> None:
-        import os
-
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         with open(self.path, "w", encoding="utf-8") as fh:
             json.dump(
@@ -235,8 +179,7 @@ class BackoffController:
 
     def should_wait(self) -> float:
         """Return remaining wait seconds, or 0 if clear to proceed."""
-        remaining = self._until - time.time()
-        return max(0.0, remaining)
+        return max(0.0, self._until - time.time())
 
     def record_success(self) -> None:
         self._minutes = 0

@@ -45,7 +45,6 @@ class Config:
     visa_locations: List[str] = field(default_factory=lambda: ["ISTANBUL"])
     visa_categories: List[str] = field(default_factory=lambda: ["B1/B2"])
     visa_duration_days: int = 120
-    require_both_consulate_and_vac: bool = False
     check_interval_minutes: int = 5
     check_jitter_seconds: int = 90
     notify: bool = True
@@ -101,9 +100,6 @@ class Config:
             visa_locations=_env_list("VISA_LOCATIONS", "ISTANBUL"),
             visa_categories=_env_list("VISA_CATEGORIES", "B1/B2"),
             visa_duration_days=_env_int("VISA_DURATION_DAYS", 120),
-            require_both_consulate_and_vac=_env_bool(
-                "REQUIRE_BOTH_CONSULATE_AND_VAC", False
-            ),
             check_interval_minutes=_env_int("CHECK_INTERVAL_MINUTES", 5),
             check_jitter_seconds=_env_int("CHECK_JITTER_SECONDS", 90),
             notify=_env_bool("NOTIFY", True),

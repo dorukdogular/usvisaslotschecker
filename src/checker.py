@@ -1,9 +1,9 @@
-"""Slot filtering logic for Istanbul (and optional India AND-mode)."""
+"""Slot filtering logic for Istanbul locations/categories."""
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil import parser as date_parser
@@ -12,17 +12,15 @@ from .config import Config
 
 logger = logging.getLogger(__name__)
 
-# Common alternate keys that checkvisaslots / community feeds may use
 CATEGORY_KEYS = (
     "visa_type",
     "visa_category",
     "category",
     "visa_class",
-    "class",
 )
 
 
-def parse_slot_date(date_str: str) -> Optional[datetime.date]:
+def parse_slot_date(date_str: str) -> Optional[date]:
     try:
         return date_parser.parse(date_str).date()
     except (ValueError, TypeError, OverflowError) as exc:
@@ -30,7 +28,9 @@ def parse_slot_date(date_str: str) -> Optional[datetime.date]:
         return None
 
 
-def is_within_duration(date_str: str, duration_days: int, today=None) -> bool:
+def is_within_duration(
+    date_str: str, duration_days: int, today: Optional[date] = None
+) -> bool:
     start_date = parse_slot_date(date_str)
     if start_date is None:
         return False
@@ -53,11 +53,12 @@ def category_matches(slot: Dict[str, Any], allowed: List[str]) -> bool:
         return True
     cat = slot_category(slot)
     if cat is None:
-        # API may not expose category on every row — keep location match
+        # API may omit category — keep location/date match
         return True
     allowed_norm = {a.strip().upper() for a in allowed}
-    return cat.upper() in allowed_norm or any(
-        a in cat.upper() for a in allowed_norm
+    cat_upper = cat.upper()
+    return cat_upper in allowed_norm or any(
+        a in cat_upper for a in allowed_norm
     )
 
 
@@ -66,8 +67,6 @@ def filter_slots(
 ) -> List[Dict[str, Any]]:
     """Return slots that match configured locations/categories/window."""
     locations = {loc.upper() for loc in config.visa_locations}
-    consulate_slots: List[Dict[str, Any]] = []
-    vac_slots: List[Dict[str, Any]] = []
     matched: List[Dict[str, Any]] = []
 
     for slot in slot_details:
@@ -77,34 +76,16 @@ def filter_slots(
             slots_count = 0
         if slots_count <= 0:
             continue
-        if "start_date" not in slot or not slot["start_date"]:
+        if not slot.get("start_date"):
             continue
         if not is_within_duration(slot["start_date"], config.visa_duration_days):
             continue
         if not category_matches(slot, config.visa_categories):
             continue
 
-        location = str(slot.get("visa_location", "")).strip()
-        location_upper = location.upper()
-
-        if config.require_both_consulate_and_vac:
-            # Legacy India mode: split VAC vs consulate by name heuristic
-            if "VAC" in location_upper:
-                if location_upper in locations or any(
-                    loc in location_upper for loc in locations
-                ):
-                    vac_slots.append(slot)
-            elif location_upper in locations:
-                consulate_slots.append(slot)
-            continue
-
-        if location_upper in locations:
+        location = str(slot.get("visa_location", "")).strip().upper()
+        if location in locations:
             matched.append(slot)
-
-    if config.require_both_consulate_and_vac:
-        if consulate_slots and vac_slots:
-            return consulate_slots + vac_slots
-        return []
 
     return matched
 

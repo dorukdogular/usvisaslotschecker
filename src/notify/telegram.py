@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import html
 import logging
 from typing import Any, Dict, List
 
-from ..client import CFSafeClient
+from curl_cffi import requests as cffi_requests
+
 from ..config import Config
 from .formatters import build_message, build_title
 
@@ -19,8 +21,8 @@ def send_telegram_notification(
         logger.warning("Telegram configuration missing")
         return False
 
-    title = build_title(slots)
-    body = build_message(slots)
+    title = html.escape(build_title(slots))
+    body = html.escape(build_message(slots))
     text = f"<b>{title}</b>\n\n{body}"
 
     url = (
@@ -30,17 +32,16 @@ def send_telegram_notification(
         "chat_id": config.telegram_chat_id,
         "text": text,
         "parse_mode": "HTML",
-        "disable_web_page_preview": True,
+        "disable_web_page_preview": "true",
     }
 
     try:
-        # Use a plain session without chrome-extension headers for Telegram
-        client = CFSafeClient(config)
-        response = client.session.post(
+        response = cffi_requests.post(
             url,
             data=payload,
             proxies=config.proxies,
             timeout=config.request_timeout,
+            impersonate=config.impersonate,
         )
         if response.status_code == 200:
             data = response.json()

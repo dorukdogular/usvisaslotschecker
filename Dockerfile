@@ -1,6 +1,6 @@
 FROM python:3.10-alpine
 
-RUN apk add --no-cache dcron tzdata supervisor
+RUN apk add --no-cache tzdata supervisor
 
 ENV TZ=Asia/Istanbul
 ENV PYTHONUNBUFFERED=1
@@ -14,8 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
 COPY visa_slot_checker.py .
-COPY scripts ./scripts
-COPY crontab /etc/crontabs/root
 COPY supervisord.conf /etc/supervisord.conf
 
 RUN mkdir -p /app/data /var/log

@@ -21,10 +21,14 @@ from .sources import fetch_slots
 logger = logging.getLogger(__name__)
 
 
-def _write_health(path: str) -> None:
+def _write_health(path: str, timezone_name: str = "Asia/Istanbul") -> None:
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    try:
+        tz = ZoneInfo(timezone_name)
+    except Exception:
+        tz = ZoneInfo("Asia/Istanbul")
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(datetime.now(tz=ZoneInfo("Europe/Istanbul")).isoformat())
+        fh.write(datetime.now(tz=tz).isoformat())
 
 
 def _log_unique_locations(slots: List[Dict[str, Any]]) -> None:
@@ -133,7 +137,7 @@ def run_once(config: Optional[Config] = None) -> Dict[str, Any]:
         )
 
     backoff.record_success()
-    _write_health(config.health_file)
+    _write_health(config.health_file, config.timezone)
     return {
         "matched": matched,
         "remaining": remaining,
