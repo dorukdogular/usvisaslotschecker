@@ -1,2 +1,3 @@
-# Run every 3 minutes
-*/3 * * * * /usr/local/bin/python /app/visa_slot_checker.py >> /proc/1/fd/1 2>&1
+# Fallback one-shot schedule (only used if you enable cron in supervisord).
+# Preferred deployment uses RUN_MODE=loop with interval + jitter.
+*/5 * * * * /usr/local/bin/python /app/visa_slot_checker.py >> /proc/1/fd/1 2>&1

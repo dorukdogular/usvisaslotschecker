@@ -1,144 +1,104 @@
-# 🔍 US Visa Appointment Slot Checker | Automated Notification System
+# İstanbul ABD Konsolosluğu Randevu Botu (Hibrit)
 
-[![Docker Support](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+İstanbul Amerikan Konsolosluğu için müsait ABD vize randevusu arar; bulunca **Telegram** (ana) ve **Email** (yedek) ile anında bildirir.
 
-An automated monitoring tool that checks for available US visa appointment slots at Indian consulates and VAC (Visa Application Center) locations. Get instant notifications when slots become available for US visa appointments in India.
+## Ne yapar?
 
-## 🌟 Key Features
+1. `checkvisaslots.com` API’sini Cloudflare-dostu TLS fingerprint (`curl_cffi`) + opsiyonel proxy ile sorgular
+2. `VISA_LOCATIONS` / `VISA_CATEGORIES` ile filtreler (varsayılan: `ISTANBUL` + `B1/B2`)
+3. Aynı slot için tekrar spam atmamak üzere dedupe tutar
+4. Rate-limit / CF koruması için **jitter’lı aralık** + 403/429’da exponential backoff uygular
+5. (Opsiyonel Phase-2) resmi `ustraveldocs.com` kaynağı için stub bırakır — **otomatik randevu almaz**
 
-- **Real-time Monitoring**: Checks US visa slots every 3 minutes automatically
-- **Multi-location Support**: Monitors multiple Indian consulates and VAC locations simultaneously
-- **Smart Notifications**:
-  - 📧 Email alerts (Gmail, Yahoo, Outlook, custom SMTP)
-  - 📱 Mobile push notifications via Pushover
-- **Flexible Configuration**:
-  - Customizable time window for slot checking
-  - Multiple location monitoring
-  - IST (Indian Standard Time) timezone support
-- **Enterprise Features**:
-  - Proxy support for reliable API access
-  - Detailed logging system
-  - Docker-based deployment
-  - Automatic restart on failure
+## Hızlı başlangıç
 
-## 🚀 Quick Start Guide
-
-### Prerequisites
-
-- 🐳 Docker and Docker Compose installed on your system
-- 🔑 [checkvisaslots.com](https://checkvisaslots.com) account
-  - Free registration required for API key access
-  - While this tool works without a paid subscription, please consider subscribing to support checkvisaslots.com if you find this tool useful
-  - Get your API key from the dashboard
-- 📱 Pushover account for mobile notifications (optional)
-  - Sign up at [pushover.net](https://pushover.net)
-  - Create an application to get your application token
-  - Get your user key from the dashboard
-- 📧 SMTP email account (Gmail/Yahoo/Outlook/Custom SMTP)
-
-## Environment Variables
-
-Create a `.env` file with the following variables:
-
-```env
-# Required
-SENDER_EMAIL=your-email@gmail.com
-SENDER_PASSWORD=your-email-password
-RECEIVER_EMAIL=recipient@email.com
-API_KEY=your-checkvisaslots-api-key
-
-# Optional
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USE_TLS=true
-PROXY_IP=your-proxy-ip
-PROXY_PORT=your-proxy-port
-PUSHOVER_TOKEN=your-pushover-token
-PUSHOVER_USER=your-pushover-user
-VISA_CONSULATE_LOCATIONS=NEW DELHI
-VISA_VAC_LOCATIONS=NEW DELHI VAC,MUMBAI VAC,KOLKATA VAC
-VISA_DURATION_DAYS=120
-```
-
-## Installation & Deployment
-
-1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd us-visa-slot-checker
+cp .env.example .env
+# API_KEY, TELEGRAM_*, SMTP_* değerlerini doldur
+
+docker compose up -d --build
+docker compose logs -f visa-checker
 ```
 
-2. Create and configure the `.env` file with your settings
+### Proxy smoke test
 
-3. Build and start the Docker container:
 ```bash
-docker-compose up -d
+docker compose up -d proxy
+docker compose run --rm -e PROXY_URL=http://proxy:8888 visa-checker \
+  python -m src proxy-test
 ```
 
-4. Check the logs:
+Docker yoksa lokal basit proxy:
+
 ```bash
-docker-compose logs -f
+python scripts/simple_proxy.py --port 8888 &
+PROXY_URL=http://127.0.0.1:8888 python -m src proxy-test
 ```
 
-## How It Works
+## Önemli env değişkenleri
 
-1. The script runs every 3 minutes via cron
-2. It checks for available slots at configured consulate and VAC locations
-3. When slots are available at both a consulate AND a VAC location within the configured time window:
-   - Sends an email notification
-   - Sends a Pushover notification (if configured)
-4. The script converts all timestamps to IST for easier tracking
+| Değişken | Varsayılan | Açıklama |
+|----------|------------|----------|
+| `SOURCE` | `checkvisaslots` | `official` Phase-2 stub |
+| `VISA_LOCATIONS` | `ISTANBUL` | API `visa_location` exact match (virgülle çoklu) |
+| `VISA_CATEGORIES` | `B1/B2` | Kategori whitelist |
+| `CHECK_INTERVAL_MINUTES` | `5` | Loop taban aralığı |
+| `CHECK_JITTER_SECONDS` | `90` | Rastgele ek bekleme (0..N) |
+| `PROXY_URL` | `http://proxy:8888` | Forward proxy (`http://` şeması) |
+| `CF_SOLVER_URL` | boş | FlareSolverr (`--profile cf`) |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | — | Ana bildirim |
+| `DEDUPE_HOURS` | `6` | Aynı slotu tekrar bildirme penceresi |
+| `REQUIRE_BOTH_CONSULATE_AND_VAC` | `false` | Hindistan legacy AND kuralı |
 
-## 🔧 Configuration Options
+İlk dry-run’da API’deki gerçek lokasyon string’lerini logda göreceksin:
 
-### 📍 Visa Locations
-Configure which locations to monitor:
-- `VISA_CONSULATE_LOCATIONS`: Consulate locations (default: "NEW DELHI")
-- `VISA_VAC_LOCATIONS`: VAC locations (default: "NEW DELHI VAC,MUMBAI VAC,KOLKATA VAC")
+```bash
+DRY_RUN=true NOTIFY=false RUN_MODE=once python -m src once
+```
 
-### ⏰ Time Window
-- `VISA_DURATION_DAYS`: Search window in days (default: 120 days)
+## Mimari
 
-### 📧 Email Configuration
-- Compatible with major email providers
-- Secure SMTP support with TLS
-- App-specific password support for enhanced security
+```
+visa_slot_checker.py          # entry (cron / loop)
+src/config.py                 # env
+src/client.py                 # curl_cffi + FlareSolverr + backoff
+src/checker.py                # İstanbul filtre
+src/dedupe.py                 # alert dedupe
+src/notify/{telegram,email,pushover}.py
+src/sources/{checkvisaslots,official}.py
+proxy/                        # Tinyproxy image
+```
 
-### 🔒 Proxy Settings
-- Enterprise-grade proxy support
-- Configurable proxy host and port
-- Improved reliability for API requests
+## Cloudflare / rate limit
 
-## 📝 Logging
+- Chrome TLS impersonation (`curl_cffi`)
+- Proxy üzerinden çıkış
+- 403/429/503 → 15→30→60 dk backoff (`data/backoff.json`)
+- Interval + jitter; API `remaining` düşükse aralık uzar
+- Opsiyonel: `docker compose --profile cf up -d` ve `CF_SOLVER_URL=http://flaresolverr:8191`
 
-- Structured logs in `./logs` directory
-- IST timestamp format
-- Detailed API response tracking
-- Notification delivery status
+## Bildirim örneği (Telegram)
 
-## 🐳 Docker Deployment
+```
+İstanbul — randevu slotu bulundu
 
-Built on:
-- Python 3.10 Alpine for minimal footprint
-- Supervisor for process management
-- Automatic container health checks
-- Volume-based log persistence
+Lokasyon: ISTANBUL
+Kategori: B1/B2
+Slot sayısı: 3
+Başlangıç: 17 Feb 2026
+Güncelleme: 2026-02-17 15:30:00 +03
+Hemen kontrol et: https://www.ustraveldocs.com/tr
+```
 
-## 🤝 Contributing
+## Testler
 
-We welcome:
-- Bug reports
-- Feature requests
-- Pull requests
-- Documentation improvements
+```bash
+python -m unittest discover -s tests -v
+```
 
-## 📄 License
+## Uyarılar
 
-This project is open source and available under the MIT License.
-
-## 🔍 Keywords
-us visa appointment, visa slot checker, us visa slots india, visa appointment tracker, us visa booking, consulate appointment, vac appointment, automated visa checker, us visa notification, visa slot availability
-
----
-*Built with ❤️ for the US visa applicant community in India* 
+- Bu bot **sadece bildirir**; randevu **otomatik almaz** (ban riski).
+- `SOURCE=official` henüz stub’dır; production’da `checkvisaslots` kullan.
+- Production CF bypass için Tinyproxy yerine residential proxy `PROXY_URL` önerilir.
+- Üçüncü taraf API ve resmi site ToS’una kendi sorumluluğunda uy.
